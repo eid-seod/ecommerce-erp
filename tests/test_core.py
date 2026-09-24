@@ -24,6 +24,14 @@ def test_setup_and_permissions(client):
     assert client.get('/api/partners').status_code==401
     login(client); assert client.get('/api/partners').status_code==200
 
+
+def test_chart_of_accounts_loads(client):
+    login(client)
+    response = client.get('/api/accounts')
+    assert response.status_code == 200
+    assert [item['code'] for item in response.json['items']] == ['5000', '4000', '3000', '2000', '1100', '1000']
+
+
 def test_audit_on_create(client):
     login(client); m=client.get('/api/auth/me').json; r=client.post('/api/partners',json={'name':'عميل','type':'company'},headers={'X-CSRF-Token':m['csrf_token']}); assert r.status_code==201
     assert client.get('/api/audit').status_code==200
