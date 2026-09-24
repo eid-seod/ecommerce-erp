@@ -41,6 +41,19 @@ def test_business_modules_load(client):
         assert client.get(f'/api/{resource}').status_code == 200
 
 
+def test_account_and_invoice_operations(client):
+    login(client)
+    csrf=client.get('/api/auth/me').json['csrf_token']
+    account=client.post('/api/accounts',json={'code':'6100','name':'Other income','kind':'income'},headers={'X-CSRF-Token':csrf})
+    assert account.status_code==201
+    invoice=client.post('/api/invoices',json={'description':'Demo service','quantity':'2','unit_price':'100','tax_rate':'15'},headers={'X-CSRF-Token':csrf})
+    assert invoice.status_code==201
+    invoice_id=invoice.json['id']
+    posted=client.post(f'/api/invoices/{invoice_id}/post',headers={'X-CSRF-Token':csrf})
+    assert posted.status_code==200
+    assert client.get('/api/invoices').json['items'][0]['status']=='posted'
+
+
 def test_company_data_is_isolated(tmp_path):
     os.environ['DATABASE_PATH']=str(tmp_path/'isolated.sqlite3')
     app=create_app({'TESTING':True,'SECRET_KEY':'test'})

@@ -1,12 +1,14 @@
 """JSON API with signup, company tenancy, authentication, and module CRUD."""
 import re
 import secrets
+from decimal import Decimal
 
 from flask import Blueprint, jsonify, request, session
 
 from .accounting import post_journal
 from .audit import log
 from .db import get_db, transaction
+from .money import to_db
 from .security import (
     csrf_token,
     current_user,
@@ -71,7 +73,7 @@ def register():
             if not role:
                 db.execute("INSERT INTO roles(name) VALUES ('Admin')")
                 role = db.execute('SELECT last_insert_rowid() id').fetchone()
-            perms = ['base.user.view','base.user.create','base.role.manage','base.settings.manage','contacts.partner.view','contacts.partner.create','accounting.journal.post','accounting.report.view','sales.order.view','sales.order.create','inventory.move.view','inventory.move.create','purchase.order.view','purchase.order.create','hr.employee.view','hr.employee.create']
+            perms = ['base.user.view','base.user.create','base.role.manage','base.settings.manage','contacts.partner.view','contacts.partner.create','accounting.journal.post','accounting.report.view','accounting.account.create','sales.order.view','sales.order.create','sales.invoice.view','sales.invoice.create','sales.invoice.post','inventory.move.view','inventory.move.create','purchase.order.view','purchase.order.create','hr.employee.view','hr.employee.create']
             for code in perms:
                 db.execute('INSERT OR IGNORE INTO role_permissions(role_id,permission) VALUES (?,?)', (role['id'], code))
             cur = db.execute('INSERT INTO users(email,password_hash,name,company_id) VALUES (?,?,?,?)', (email, hash_password(data['password']), data['name'].strip(), cid))
@@ -157,6 +159,69 @@ def register():
                 return jsonify(id=cur.lastrowid), 201
             return inner()
         api.add_url_rule('/' + endpoint, endpoint + '_create', create_resource, methods=['POST'])
+
+    @api.get('/invoices')
+    @permission('sales.invoice.view')
+    def invoices():
+        items = rows('SELECT id,number,partner_id,invoice_date,status,subtotal,tax_total,total,currency,version FROM invoices WHERE company_id=? AND active=1 ORDER BY id DESC LIMIT 200', (company_id(),))
+        for item in items:
+            item['lines'] = rows('SELECT id,description,quantity,unit_price,tax_rate,line_total FROM invoice_lines WHERE invoice_id=? ORDER BY id', (item['id'],))
+        return jsonify(items=items)
+
+    @api.post('/invoices')
+    @permission('sales.invoice.create')
+    def create_invoice():
+        data = json_body()
+        lines = data.get('lines') or [{'description': data.get('description'), 'quantity': data.get('quantity', '1'), 'unit_price': data.get('unit_price', '0'), 'tax_rate': data.get('tax_rate', '0')}]
+        if not lines or any(not line.get('description') for line in lines):
+            return jsonify(error='يجب إدخال وصف لكل سطر'), 400
+        subtotal = Decimal(0)
+        tax_total = Decimal(0)
+        normalized = []
+        for line in lines:
+            quantity = Decimal(str(line.get('quantity', '1')))
+            unit_price = Decimal(str(line.get('unit_price', '0')))
+            tax_rate = Decimal(str(line.get('tax_rate', '0')))
+            line_total = quantity * unit_price
+            tax = line_total * tax_rate / Decimal(100)
+            subtotal += line_total
+            tax_total += tax
+            normalized.append((line['description'], quantity, unit_price, tax_rate, line_total))
+        with transaction() as db:
+            number = f"INV-{company_id()}-{secrets.token_hex(4).upper()}"
+            cur = db.execute('INSERT INTO invoices(number,partner_id,invoice_date,status,subtotal,tax_total,total,currency,company_id) VALUES (?,?,COALESCE(?,CURRENT_DATE),?,?,?,?,?,?)', (number, data.get('partner_id'), data.get('invoice_date'), 'draft', to_db(subtotal), to_db(tax_total), to_db(subtotal + tax_total), data.get('currency', 'SAR'), company_id()))
+            invoice_id = cur.lastrowid
+            for description, quantity, unit_price, tax_rate, line_total in normalized:
+                db.execute('INSERT INTO invoice_lines(invoice_id,description,quantity,unit_price,tax_rate,line_total) VALUES (?,?,?,?,?,?)', (invoice_id, description, to_db(quantity), to_db(unit_price), to_db(tax_rate), to_db(line_total)))
+            log('create', 'invoices', invoice_id, new_value=str(data), user_id=current_user()['id'])
+        return jsonify(id=invoice_id, number=number, subtotal=to_db(subtotal), tax_total=to_db(tax_total), total=to_db(subtotal + tax_total)), 201
+
+    @api.post('/invoices/<int:invoice_id>/post')
+    @permission('sales.invoice.post')
+    def post_invoice(invoice_id):
+        with transaction() as db:
+            invoice = db.execute('SELECT * FROM invoices WHERE id=? AND company_id=? AND status=\'draft\'', (invoice_id, company_id())).fetchone()
+            if not invoice:
+                return jsonify(error='الفاتورة غير موجودة أو تم ترحيلها'), 404
+            period = db.execute('SELECT * FROM fiscal_periods WHERE company_id=? AND status=\'open\' ORDER BY id LIMIT 1', (company_id(),)).fetchone()
+            receivable = db.execute("SELECT id FROM accounts WHERE company_id=? AND code LIKE '1100%' LIMIT 1", (company_id(),)).fetchone()
+            revenue = db.execute("SELECT id FROM accounts WHERE company_id=? AND kind='income' LIMIT 1", (company_id(),)).fetchone()
+            tax_account = db.execute("SELECT id FROM accounts WHERE company_id=? AND kind='liability' LIMIT 1", (company_id(),)).fetchone()
+            if not period or not receivable or not revenue:
+                return jsonify(error='الحسابات أو الفترة المحاسبية غير مكتملة'), 400
+            cur = db.execute('INSERT INTO journals(reference,journal_date,period_id,memo,status,created_by,company_id) VALUES (?,?,?,? ,\'draft\',?,?)', (f'INV-J-{invoice_id}', invoice['invoice_date'], period['id'], f'فاتورة {invoice["number"]}', current_user()['id'], company_id()))
+            journal_id = cur.lastrowid
+            db.execute('INSERT INTO journal_lines(journal_id,account_id,partner_id,debit,credit,memo,source_type,source_id) VALUES (?,?,?,?,?,?,?,?)', (journal_id, receivable['id'], invoice['partner_id'], invoice['total'], 0, 'ذمم مدينة', 'invoice', invoice_id))
+            db.execute('INSERT INTO journal_lines(journal_id,account_id,partner_id,debit,credit,memo,source_type,source_id) VALUES (?,?,?,?,?,?,?,?)', (journal_id, revenue['id'], invoice['partner_id'], 0, invoice['subtotal'], 'إيراد مبيعات', 'invoice', invoice_id))
+            if invoice['tax_total'] and tax_account:
+                db.execute('INSERT INTO journal_lines(journal_id,account_id,partner_id,debit,credit,memo,source_type,source_id) VALUES (?,?,?,?,?,?,?,?)', (journal_id, tax_account['id'], invoice['partner_id'], 0, invoice['tax_total'], 'ضريبة مخرجات', 'invoice', invoice_id))
+        try:
+            post_journal(journal_id, current_user()['id'])
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        with transaction() as db:
+            db.execute("UPDATE invoices SET status='posted',journal_id=? WHERE id=? AND company_id=?", (journal_id, invoice_id, company_id()))
+        return jsonify(ok=True, journal_id=journal_id)
 
     @api.get('/accounting/trial-balance')
     @permission('accounting.report.view')

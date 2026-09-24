@@ -1,0 +1,6 @@
+CREATE TABLE invoices(id INTEGER PRIMARY KEY,number TEXT UNIQUE NOT NULL,partner_id INTEGER REFERENCES partners(id),invoice_date TEXT NOT NULL DEFAULT CURRENT_DATE,status TEXT NOT NULL DEFAULT 'draft',subtotal INTEGER NOT NULL DEFAULT 0,tax_total INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL DEFAULT 0,currency TEXT NOT NULL DEFAULT 'SAR',journal_id INTEGER REFERENCES journals(id),company_id INTEGER NOT NULL REFERENCES companies(id),active INTEGER NOT NULL DEFAULT 1,version INTEGER NOT NULL DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE invoice_lines(id INTEGER PRIMARY KEY,invoice_id INTEGER NOT NULL REFERENCES invoices(id),description TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 10000,unit_price INTEGER NOT NULL DEFAULT 0,tax_rate INTEGER NOT NULL DEFAULT 0,line_total INTEGER NOT NULL DEFAULT 0);
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'accounting.account.create' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'sales.invoice.view' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'sales.invoice.create' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'sales.invoice.post' FROM roles WHERE name='Admin';
