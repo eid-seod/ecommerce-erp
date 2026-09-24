@@ -1,0 +1,9 @@
+*.py[cod]
+__pycache__/
+.venv/
+.env
+instance/
+backups/
+.pytest_cache/
+.ruff_cache/
+*.sqlite3
