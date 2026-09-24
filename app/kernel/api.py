@@ -240,6 +240,6 @@ def register():
     @api.get('/audit')
     @permission('base.settings.manage')
     def audit():
-        return jsonify(items=rows('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200'))
+        return jsonify(items=rows('SELECT * FROM audit_log WHERE company_id=? ORDER BY id DESC LIMIT 200', (company_id(),)))
 
     return api
