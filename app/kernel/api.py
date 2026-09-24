@@ -1,9 +1,11 @@
 """JSON API with signup, company tenancy, authentication, and module CRUD."""
 import re
 import secrets
+import sqlite3
 from decimal import Decimal
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, current_app, jsonify, request, session
+from werkzeug.exceptions import HTTPException
 
 from .accounting import post_journal
 from .accounting_core import post_entry
@@ -44,6 +46,15 @@ def register():
     @api.before_request
     def csrf():
         return require_csrf()
+
+    @api.errorhandler(Exception)
+    def api_error(exc):
+        if isinstance(exc, HTTPException):
+            return exc
+        current_app.logger.exception('Unhandled API error')
+        if isinstance(exc, sqlite3.IntegrityError):
+            return jsonify(error='البيانات غير صحيحة أو مرتبطة بسجل غير موجود'), 400
+        return jsonify(error='حدث خطأ داخلي في العملية'), 500
 
     @api.get('/health')
     def health():
