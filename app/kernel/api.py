@@ -210,9 +210,14 @@ def register():
             subtotal += line_total
             tax_total += tax
             normalized.append((line['description'], quantity, unit_price, tax_rate, line_total))
+        partner_id = data.get('partner_id') or None
+        if partner_id:
+            partner = get_db().execute('SELECT id FROM partners WHERE id=? AND company_id=? AND active=1', (partner_id, company_id())).fetchone()
+            if not partner:
+                return jsonify(error='العميل غير موجود في الشركة الحالية'), 400
         with transaction() as db:
             number = f"INV-{company_id()}-{secrets.token_hex(4).upper()}"
-            cur = db.execute('INSERT INTO invoices(number,partner_id,invoice_date,status,subtotal,tax_total,total,currency,company_id) VALUES (?,?,COALESCE(?,CURRENT_DATE),?,?,?,?,?,?)', (number, data.get('partner_id'), data.get('invoice_date'), 'draft', to_db(subtotal), to_db(tax_total), to_db(subtotal + tax_total), data.get('currency', 'SAR'), company_id()))
+            cur = db.execute('INSERT INTO invoices(number,partner_id,invoice_date,status,subtotal,tax_total,total,currency,company_id) VALUES (?,?,COALESCE(NULLIF(?,\'\'),CURRENT_DATE),?,?,?,?,?,?)', (number, partner_id, data.get('invoice_date'), 'draft', to_db(subtotal), to_db(tax_total), to_db(subtotal + tax_total), data.get('currency', 'SAR'), company_id()))
             invoice_id = cur.lastrowid
             for description, quantity, unit_price, tax_rate, line_total in normalized:
                 db.execute('INSERT INTO invoice_lines(invoice_id,description,quantity,unit_price,tax_rate,line_total) VALUES (?,?,?,?,?,?)', (invoice_id, description, to_db(quantity), to_db(unit_price), to_db(tax_rate), to_db(line_total)))

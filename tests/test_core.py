@@ -54,7 +54,7 @@ def test_account_and_invoice_operations(client):
     assert account.status_code==201
     duplicate=client.post('/api/accounts',json={'code':'6100','name':'Duplicate','kind':'income'},headers={'X-CSRF-Token':csrf})
     assert duplicate.status_code==400 and duplicate.is_json
-    invoice=client.post('/api/invoices',json={'description':'Demo service','quantity':'2','unit_price':'100','tax_rate':'15'},headers={'X-CSRF-Token':csrf})
+    invoice=client.post('/api/invoices',json={'partner_id':'','invoice_date':'','description':'Demo service','quantity':'2','unit_price':'100','tax_rate':'15'},headers={'X-CSRF-Token':csrf})
     assert invoice.status_code==201
     invoice_id=invoice.json['id']
     posted=client.post(f'/api/invoices/{invoice_id}/post',headers={'X-CSRF-Token':csrf})
