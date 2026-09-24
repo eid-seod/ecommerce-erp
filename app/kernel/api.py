@@ -44,7 +44,7 @@ def register():
             if db.execute('SELECT 1 FROM company LIMIT 1').fetchone(): return jsonify(error='Already configured'),409
             db.execute('INSERT INTO company(name, legal_form, business_type, currency, decimals) VALUES (?,?,?,?,?)',(d['name'],d['legal_form'],d['business_type'],d['currency'],int(d.get('decimals',2))))
             db.execute('INSERT INTO roles(name) VALUES (?)',('Admin',)); role=db.execute('SELECT last_insert_rowid() id').fetchone()['id']
-            perms=['base.user.view','base.user.create','base.role.manage','base.settings.manage','contacts.partner.view','contacts.partner.create','accounting.journal.post','accounting.report.view']
+            perms=['base.user.view','base.user.create','base.role.manage','base.settings.manage','contacts.partner.view','contacts.partner.create','accounting.journal.post','accounting.report.view','sales.order.view','sales.order.create','inventory.move.view','inventory.move.create','purchase.order.view','purchase.order.create','hr.employee.view','hr.employee.create']
             for p in perms: db.execute('INSERT INTO role_permissions(role_id,permission) VALUES (?,?)',(role,p))
             db.execute('INSERT INTO users(email,password_hash,name) VALUES (?,?,?)',(d['admin_email'].lower(),hash_password(d['admin_password']),d.get('admin_name','Administrator'))); uid=db.execute('SELECT last_insert_rowid() id').fetchone()['id']; db.execute('INSERT INTO user_roles(user_id,role_id) VALUES (?,?)',(uid,role))
             for code,name,kind in [('1000','Cash','asset'),('1100','Receivables','asset'),('2000','Payables','liability'),('3000','Capital','equity'),('4000','Sales revenue','income'),('5000','Cost of sales','expense')]: db.execute('INSERT INTO accounts(code,name,kind) VALUES (?,?,?)',(code,name,kind))
@@ -54,7 +54,13 @@ def register():
     @permission('accounting.report.view')
     def dashboard():
         db=get_db(); return jsonify(company=dict(db.execute('SELECT * FROM company LIMIT 1').fetchone() or {}), counts={k:db.execute(f'SELECT COUNT(*) c FROM {t}').fetchone()['c'] for k,t in [('partners','partners'),('products','products'),('journals','journals'),('accounts','accounts')]})
-    resources={'partners':('partners','contacts.partner.view','contacts.partner.create',['name','type','tax_id','phone','email']), 'products':('products','catalog.product.view','catalog.product.create',['name','sku','product_type','sale_price']), 'accounts':('accounts','accounting.report.view','accounting.account.create',['code','name','kind'])}
+    @api.get('/modules/overview')
+    @permission('accounting.report.view')
+    def modules_overview():
+        db=get_db()
+        tables={'sales':'sales_orders','inventory':'inventory_moves','purchase':'purchase_orders','hr':'employees'}
+        return jsonify(modules={key:db.execute(f'SELECT COUNT(*) c FROM {table} WHERE active=1').fetchone()['c'] for key,table in tables.items()})
+    resources={'partners':('partners','contacts.partner.view','contacts.partner.create',['name','type','tax_id','phone','email']), 'products':('products','accounting.report.view','catalog.product.create',['name','sku','product_type','sale_price']), 'accounts':('accounts','accounting.report.view','accounting.account.create',['code','name','kind']), 'sales_orders':('sales_orders','sales.order.view','sales.order.create',['number','partner_id','order_date','status','total']), 'inventory_moves':('inventory_moves','inventory.move.view','inventory.move.create',['reference','product_id','quantity','direction','warehouse','status','source']), 'purchase_orders':('purchase_orders','purchase.order.view','purchase.order.create',['number','partner_id','order_date','status','total']), 'employees':('employees','hr.employee.view','hr.employee.create',['employee_code','name','department','job_title','email','hire_date','status'])}
     for endpoint,(table,view_perm,create_perm,fields) in resources.items():
         def list_resource(table=table, view_perm=view_perm, fields=fields):
             @permission(view_perm)

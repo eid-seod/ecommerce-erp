@@ -1,0 +1,12 @@
+CREATE TABLE sales_orders(id INTEGER PRIMARY KEY,number TEXT UNIQUE NOT NULL,partner_id INTEGER REFERENCES partners(id),order_date TEXT NOT NULL DEFAULT CURRENT_DATE,status TEXT NOT NULL DEFAULT 'draft',total INTEGER NOT NULL DEFAULT 0,active INTEGER NOT NULL DEFAULT 1,version INTEGER NOT NULL DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE inventory_moves(id INTEGER PRIMARY KEY,reference TEXT UNIQUE NOT NULL,product_id INTEGER REFERENCES products(id),quantity INTEGER NOT NULL DEFAULT 0,direction TEXT NOT NULL,warehouse TEXT NOT NULL DEFAULT 'Main',status TEXT NOT NULL DEFAULT 'draft',source TEXT,active INTEGER NOT NULL DEFAULT 1,version INTEGER NOT NULL DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE purchase_orders(id INTEGER PRIMARY KEY,number TEXT UNIQUE NOT NULL,partner_id INTEGER REFERENCES partners(id),order_date TEXT NOT NULL DEFAULT CURRENT_DATE,status TEXT NOT NULL DEFAULT 'draft',total INTEGER NOT NULL DEFAULT 0,active INTEGER NOT NULL DEFAULT 1,version INTEGER NOT NULL DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE employees(id INTEGER PRIMARY KEY,employee_code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,department TEXT,job_title TEXT,email TEXT,hire_date TEXT,status TEXT NOT NULL DEFAULT 'active',active INTEGER NOT NULL DEFAULT 1,version INTEGER NOT NULL DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'sales.order.view' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'sales.order.create' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'inventory.move.view' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'inventory.move.create' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'purchase.order.view' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'purchase.order.create' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'hr.employee.view' FROM roles WHERE name='Admin';
+INSERT OR IGNORE INTO role_permissions(role_id,permission) SELECT id,'hr.employee.create' FROM roles WHERE name='Admin';

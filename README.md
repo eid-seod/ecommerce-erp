@@ -1,4 +1,4 @@
-# Najd ERP / نظام نجد لإدارة الأعمال
+# Business Solutions / Business Solutions - نظام إدارة الأعمال
 
 Arabic-first, single-tenant accounting and ERP foundation for e-commerce companies, built with Python 3.11+, Flask, SQLite, and vanilla JavaScript. This repository currently implements the Phase 0–2 MVP foundation: kernel, authentication, permissions, metadata-driven CRUD, setup wizard, partners, products, chart of accounts, journals, posting, periods, and reports.
 

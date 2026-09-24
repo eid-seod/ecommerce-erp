@@ -32,6 +32,13 @@ def test_chart_of_accounts_loads(client):
     assert [item['code'] for item in response.json['items']] == ['5000', '4000', '3000', '2000', '1100', '1000']
 
 
+def test_business_modules_load(client):
+    login(client)
+    assert client.get('/api/modules/overview').status_code == 200
+    for resource in ['sales_orders', 'inventory_moves', 'purchase_orders', 'employees']:
+        assert client.get(f'/api/{resource}').status_code == 200
+
+
 def test_audit_on_create(client):
     login(client); m=client.get('/api/auth/me').json; r=client.post('/api/partners',json={'name':'عميل','type':'company'},headers={'X-CSRF-Token':m['csrf_token']}); assert r.status_code==201
     assert client.get('/api/audit').status_code==200
