@@ -59,7 +59,11 @@ def test_account_and_invoice_operations(client):
     invoice_id=invoice.json['id']
     posted=client.post(f'/api/invoices/{invoice_id}/post',headers={'X-CSRF-Token':csrf})
     assert posted.status_code==200
+    assert posted.json['accounting_entry_id'] > 0
     assert client.get('/api/invoices').json['items'][0]['status']=='posted'
+    trial={x['code']:x for x in client.get('/api/accounting/trial-balance').json['items']}
+    assert trial['1100']['debit']==2300000
+    assert trial['4000']['credit']==2000000
 
 
 def test_manual_entry_rejects_unbalanced_and_is_immutable(client):

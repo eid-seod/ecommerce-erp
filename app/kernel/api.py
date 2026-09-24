@@ -11,7 +11,7 @@ from .accounting import post_journal
 from .accounting_core import post_entry
 from .audit import log
 from .db import get_db, transaction
-from .money import to_db
+from .money import from_db, to_db
 from .security import (
     csrf_token,
     current_user,
@@ -227,29 +227,30 @@ def register():
     @api.post('/invoices/<int:invoice_id>/post')
     @permission('sales.invoice.post')
     def post_invoice(invoice_id):
-        with transaction() as db:
-            invoice = db.execute('SELECT * FROM invoices WHERE id=? AND company_id=? AND status=\'draft\'', (invoice_id, company_id())).fetchone()
-            if not invoice:
-                return jsonify(error='الفاتورة غير موجودة أو تم ترحيلها'), 404
-            period = db.execute('SELECT * FROM fiscal_periods WHERE company_id=? AND status=\'open\' ORDER BY id LIMIT 1', (company_id(),)).fetchone()
-            receivable = db.execute("SELECT id FROM accounts WHERE company_id=? AND code LIKE '1100%' LIMIT 1", (company_id(),)).fetchone()
-            revenue = db.execute("SELECT id FROM accounts WHERE company_id=? AND kind='income' LIMIT 1", (company_id(),)).fetchone()
-            tax_account = db.execute("SELECT id FROM accounts WHERE company_id=? AND kind='liability' LIMIT 1", (company_id(),)).fetchone()
-            if not period or not receivable or not revenue:
-                return jsonify(error='الحسابات أو الفترة المحاسبية غير مكتملة'), 400
-            cur = db.execute('INSERT INTO journals(reference,journal_date,period_id,memo,status,created_by,company_id) VALUES (?,?,?,? ,\'draft\',?,?)', (f'INV-J-{invoice_id}', invoice['invoice_date'], period['id'], f'فاتورة {invoice["number"]}', current_user()['id'], company_id()))
-            journal_id = cur.lastrowid
-            db.execute('INSERT INTO journal_lines(journal_id,account_id,partner_id,debit,credit,memo,source_type,source_id) VALUES (?,?,?,?,?,?,?,?)', (journal_id, receivable['id'], invoice['partner_id'], invoice['total'], 0, 'ذمم مدينة', 'invoice', invoice_id))
-            db.execute('INSERT INTO journal_lines(journal_id,account_id,partner_id,debit,credit,memo,source_type,source_id) VALUES (?,?,?,?,?,?,?,?)', (journal_id, revenue['id'], invoice['partner_id'], 0, invoice['subtotal'], 'إيراد مبيعات', 'invoice', invoice_id))
-            if invoice['tax_total'] and tax_account:
-                db.execute('INSERT INTO journal_lines(journal_id,account_id,partner_id,debit,credit,memo,source_type,source_id) VALUES (?,?,?,?,?,?,?,?)', (journal_id, tax_account['id'], invoice['partner_id'], 0, invoice['tax_total'], 'ضريبة مخرجات', 'invoice', invoice_id))
+        db = get_db()
+        invoice = db.execute("SELECT * FROM invoices WHERE id=? AND company_id=? AND status='draft'", (invoice_id, company_id())).fetchone()
+        if not invoice:
+            return jsonify(error='الفاتورة غير موجودة أو تم ترحيلها'), 404
+        receivable = db.execute("SELECT id FROM chart_of_accounts WHERE company_id=? AND code LIKE '1100%' AND active=1 LIMIT 1", (company_id(),)).fetchone()
+        revenue = db.execute("SELECT id FROM chart_of_accounts WHERE company_id=? AND kind='income' AND active=1 LIMIT 1", (company_id(),)).fetchone()
+        tax_account = db.execute("SELECT id FROM chart_of_accounts WHERE company_id=? AND code LIKE '2100%' AND active=1 LIMIT 1", (company_id(),)).fetchone()
+        if not tax_account:
+            tax_account = db.execute("SELECT id FROM chart_of_accounts WHERE company_id=? AND kind='liability' AND active=1 LIMIT 1", (company_id(),)).fetchone()
+        if not receivable or not revenue:
+            return jsonify(error='حساب العملاء أو حساب الإيرادات غير موجود'), 400
+        lines = [
+            {'account': receivable['id'], 'partner_id': invoice['partner_id'], 'debit': str(from_db(invoice['total'])), 'credit': '0', 'memo': 'ذمم مدينة من فاتورة'},
+            {'account': revenue['id'], 'partner_id': invoice['partner_id'], 'debit': '0', 'credit': str(from_db(invoice['subtotal'])), 'memo': 'إيراد مبيعات من فاتورة'},
+        ]
+        if invoice['tax_total'] and tax_account:
+            lines.append({'account': tax_account['id'], 'partner_id': invoice['partner_id'], 'debit': '0', 'credit': str(from_db(invoice['tax_total'])), 'memo': 'ضريبة مخرجات من فاتورة'})
         try:
-            post_journal(journal_id, current_user()['id'])
+            entry_id = post_entry(lines, company_id(), current_user()['id'], f'فاتورة {invoice["number"]}', invoice['invoice_date'])
         except ValueError as exc:
             return jsonify(error=str(exc)), 400
         with transaction() as db:
-            db.execute("UPDATE invoices SET status='posted',journal_id=? WHERE id=? AND company_id=?", (journal_id, invoice_id, company_id()))
-        return jsonify(ok=True, journal_id=journal_id)
+            db.execute("UPDATE invoices SET status='posted',accounting_entry_id=? WHERE id=? AND company_id=?", (entry_id, invoice_id, company_id()))
+        return jsonify(ok=True, accounting_entry_id=entry_id)
 
     @api.get('/accounting/trial-balance')
     @permission('accounting.report.view')

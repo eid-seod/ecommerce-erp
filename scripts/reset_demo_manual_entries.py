@@ -9,7 +9,7 @@ app = create_app()
 with app.app_context():
     db = get_db()
     cid = int(os.getenv('DEMO_COMPANY_ID', '2'))
-    ids = [r['id'] for r in db.execute("SELECT id FROM journal_entries WHERE company_id=?", (cid,)).fetchall()]
+    ids = [r['id'] for r in db.execute("SELECT id FROM journal_entries WHERE company_id=? AND entry_no LIKE 'ME-%'", (cid,)).fetchall()]
     if ids:
         placeholders = ','.join('?' for _ in ids)
         db.execute(f'DELETE FROM journal_lines WHERE entry_id IN ({placeholders})', ids)
