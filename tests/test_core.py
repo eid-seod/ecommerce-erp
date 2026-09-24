@@ -2,6 +2,12 @@ import os
 
 import pytest
 
+from app.kernel.accounting_core import (
+    PostedEntryImmutableError,
+    delete_entry,
+    post_entry,
+    update_entry,
+)
 from app.kernel.money import from_db, to_db
 from wsgi import create_app
 
@@ -52,6 +58,37 @@ def test_account_and_invoice_operations(client):
     posted=client.post(f'/api/invoices/{invoice_id}/post',headers={'X-CSRF-Token':csrf})
     assert posted.status_code==200
     assert client.get('/api/invoices').json['items'][0]['status']=='posted'
+
+
+def test_manual_entry_rejects_unbalanced_and_is_immutable(client):
+    login(client)
+    csrf=client.get('/api/auth/me').json['csrf_token']
+    account_ids=[item['id'] for item in client.get('/api/accounts').json['items'][:2]]
+    with pytest.raises(ValueError):
+        post_entry([{'account':account_ids[0],'debit':'100','credit':'0'},{'account':account_ids[1],'debit':'0','credit':'90'}], 1, 1)
+    response=client.post('/api/accounting/manual-entry',json={'lines':[{'account':account_ids[0],'debit':'100','credit':'0'},{'account':account_ids[1],'debit':'0','credit':'90'}]},headers={'X-CSRF-Token':csrf})
+    assert response.status_code==400
+    posted=client.post('/api/accounting/manual-entry',json={'lines':[{'account':account_ids[0],'debit':'100','credit':'0'},{'account':account_ids[1],'debit':'0','credit':'100'}]},headers={'X-CSRF-Token':csrf})
+    assert posted.status_code==201
+    with client.application.app_context():
+        with pytest.raises(PostedEntryImmutableError):
+            update_entry(posted.json['id'], client.get('/api/auth/me').json['user']['company_id'], {})
+        with pytest.raises(PostedEntryImmutableError):
+            delete_entry(posted.json['id'], client.get('/api/auth/me').json['user']['company_id'])
+
+
+def test_trial_balance_sums_posted_manual_entries(client):
+    login(client)
+    csrf=client.get('/api/auth/me').json['csrf_token']
+    accounts=client.get('/api/accounts').json['items']
+    cash=next(x['id'] for x in accounts if x['code']=='1000')
+    bank=next(x['id'] for x in accounts if x['code']=='1100')
+    for amount in ('100','200','300'):
+        response=client.post('/api/accounting/manual-entry',json={'lines':[{'account':cash,'debit':amount,'credit':'0'},{'account':bank,'debit':'0','credit':amount}]},headers={'X-CSRF-Token':csrf})
+        assert response.status_code==201
+    trial={x['code']:x for x in client.get('/api/accounting/trial-balance').json['items']}
+    assert trial['1000']['debit']==6000000
+    assert trial['1100']['credit']==6000000
 
 
 def test_company_data_is_isolated(tmp_path):

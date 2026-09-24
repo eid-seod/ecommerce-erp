@@ -6,6 +6,7 @@ from decimal import Decimal
 from flask import Blueprint, jsonify, request, session
 
 from .accounting import post_journal
+from .accounting_core import post_entry
 from .audit import log
 from .db import get_db, transaction
 from .money import to_db
@@ -82,6 +83,7 @@ def register():
             for code, name, kind in [('1000','Cash','asset'),('1100','Receivables','asset'),('2000','Payables','liability'),('3000','Capital','equity'),('4000','Sales revenue','income'),('5000','Cost of sales','expense')]:
                 account_code = code if not db.execute('SELECT 1 FROM accounts WHERE code=?', (code,)).fetchone() else f'{code}-{cid}'
                 db.execute('INSERT INTO accounts(code,name,kind,company_id) VALUES (?,?,?,?)', (account_code, name, kind, cid))
+                db.execute('INSERT INTO chart_of_accounts(company_id,code,name,kind) VALUES (?,?,?,?)', (cid, code, name, kind))
             db.execute("INSERT INTO fiscal_periods(name,start_date,end_date,status,company_id) VALUES (?,?,?,?,?)", ('FY 2026','2026-01-01','2026-12-31','open',cid))
         session.clear()
         session['user_id'] = uid
@@ -128,7 +130,7 @@ def register():
     resources = {
         'partners': ('partners','contacts.partner.view','contacts.partner.create',['name','type','tax_id','phone','email']),
         'products': ('products','accounting.report.view','catalog.product.create',['name','sku','product_type','sale_price']),
-        'accounts': ('accounts','accounting.report.view','accounting.account.create',['code','name','kind']),
+        'accounts': ('chart_of_accounts','accounting.report.view','accounting.account.create',['code','name','kind']),
         'sales_orders': ('sales_orders','sales.order.view','sales.order.create',['number','partner_id','order_date','status','total']),
         'inventory_moves': ('inventory_moves','inventory.move.view','inventory.move.create',['reference','product_id','quantity','direction','warehouse','status','source']),
         'purchase_orders': ('purchase_orders','purchase.order.view','purchase.order.create',['number','partner_id','order_date','status','total']),
@@ -159,6 +161,16 @@ def register():
                 return jsonify(id=cur.lastrowid), 201
             return inner()
         api.add_url_rule('/' + endpoint, endpoint + '_create', create_resource, methods=['POST'])
+
+    @api.post('/accounting/manual-entry')
+    @permission('accounting.journal.post')
+    def manual_entry():
+        data = json_body()
+        try:
+            entry_id = post_entry(data.get('lines', []), company_id(), current_user()['id'], data.get('memo', 'Manual journal entry'), data.get('entry_date'))
+        except (TypeError, ValueError) as exc:
+            return jsonify(error=str(exc)), 400
+        return jsonify(id=entry_id, status='posted'), 201
 
     @api.get('/invoices')
     @permission('sales.invoice.view')
@@ -226,7 +238,7 @@ def register():
     @api.get('/accounting/trial-balance')
     @permission('accounting.report.view')
     def trial_balance():
-        return jsonify(items=rows("SELECT a.code,a.name,COALESCE(SUM(l.debit),0) debit,COALESCE(SUM(l.credit),0) credit FROM accounts a LEFT JOIN journal_lines l ON l.account_id=a.id LEFT JOIN journals j ON j.id=l.journal_id AND j.status='posted' WHERE a.company_id=? GROUP BY a.id ORDER BY a.code", (company_id(),)))
+        return jsonify(items=rows("SELECT a.id,a.code,a.name,COALESCE(SUM(l.debit),0) debit,COALESCE(SUM(l.credit),0) credit FROM chart_of_accounts a LEFT JOIN (journal_lines l JOIN journal_entries e ON e.id=l.entry_id AND e.status='posted') ON l.chart_account_id=a.id WHERE a.company_id=? GROUP BY a.id ORDER BY a.code", (company_id(),)))
 
     @api.post('/accounting/journals/<int:jid>/post')
     @permission('accounting.journal.post')
