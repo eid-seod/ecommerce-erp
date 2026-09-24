@@ -1,6 +1,6 @@
 # Business Solutions / Business Solutions - نظام إدارة الأعمال
 
-Arabic-first, single-tenant accounting and ERP foundation for e-commerce companies, built with Python 3.11+, Flask, SQLite, and vanilla JavaScript. This repository currently implements the Phase 0–2 MVP foundation: kernel, authentication, permissions, metadata-driven CRUD, setup wizard, partners, products, chart of accounts, journals, posting, periods, and reports.
+Arabic-first Business Solutions ERP demo for e-commerce companies, built with Python 3.11+, Flask, SQLite, and vanilla JavaScript. It includes signup, login, company records, company-scoped data isolation, permissions, CRUD, partners, products, chart of accounts, Sales, Inventory, Purchase, and HR modules. SQLite is for local experimentation only, not production data.
 
 ## Quick start
 
@@ -15,7 +15,7 @@ pytest -q
 ruff check .
 ```
 
-On the first visit complete the setup wizard. Demo seed data is available with `python scripts/seed_demo.py`.
+On the first visit choose **Create account and company**. Subsequent visits show the login screen. Demo seed data is available with `python scripts/seed_demo.py`.
 
 ## التشغيل بالعربية
 
@@ -27,7 +27,7 @@ cp .env.example .env
 flask --app wsgi:create_app run --debug
 ```
 
-يفتح النظام معالج الإعداد عند أول تشغيل. الحساب التجريبي بعد تشغيل البذرة: `admin@example.com` / `ChangeMe123!`.
+يفتح النظام صفحة تسجيل الدخول أو إنشاء حساب وشركة. قاعدة SQLite الحالية للتجربة المحلية فقط. الحساب التجريبي بعد تشغيل البذرة: `admin@example.com` / `ChangeMe123!`.
 
 ## Backup and update
 
